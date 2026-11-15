@@ -1,0 +1,6 @@
+__pycache__/
+build/
+*.spec
+config.json
+*.zip
+*.bmp
