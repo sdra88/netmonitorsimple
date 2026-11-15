@@ -1,6 +1,9 @@
 __pycache__/
 build/
+dist/
 *.spec
 config.json
 *.zip
 *.bmp
+NetSpeedMonitor.exe
+app.ico

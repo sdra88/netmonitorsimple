@@ -12,6 +12,8 @@ import sys
 import threading
 import time
 
+VERSION = "1.1.0"
+
 SCRIPT = os.path.abspath(__file__)
 BASE = os.path.dirname(SCRIPT)
 if getattr(sys, "frozen", False):
@@ -557,7 +559,7 @@ def open_settings():
 
             cfg = load_cfg()
             root = tk.Tk()
-            root.title("NetSpeed Monitor")
+            root.title("NetSpeed Monitor v%s" % VERSION)
             root.attributes("-topmost", True)
             root.resizable(False, False)
             root.configure(padx=14, pady=12)
@@ -665,7 +667,7 @@ def tray_add():
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
     nid.uCallbackMessage = WM_TRAY
     nid.hIcon = hicon
-    nid.szTip = "NetSpeed Monitor - click for settings"
+    nid.szTip = "NetSpeed Monitor v%s" % VERSION
     ok = bool(shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)))
     nid.uVersion = NOTIFYICON_VERSION_4
     shell32.Shell_NotifyIconW(NIM_SETVERSION, ctypes.byref(nid))
@@ -794,4 +796,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if any(a in ("-V", "--version") for a in sys.argv[1:]):
+        print("NetSpeed Monitor %s" % VERSION)
+        sys.exit(0)
     sys.exit(main())

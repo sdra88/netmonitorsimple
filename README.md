@@ -1,5 +1,7 @@
 # NetSpeed Monitor
 
+**Versi terbaru: [v1.1.0](https://github.com/sdra88/netmonitorsimple/releases/latest)**
+
 Widget kecepatan jaringan (Mbps) yang menempel di taskbar Windows 11, satu widget
 per monitor, tepat di sebelah kiri tombol Start. Background transparan, teks
 click-through (klik taskbar tetap jalan).
@@ -13,6 +15,12 @@ click-through (klik taskbar tetap jalan).
 - Background transparan, teks bisa diganti warna/ukuran/font.
 - Ikon system tray: Settings, Enable/Disable, Start with Windows, Exit.
 - Tanpa dependensi pihak ketiga (stdlib + ctypes).
+
+## Unduh
+
+Ambil `NetSpeedMonitor.exe` dari halaman
+[Releases](https://github.com/sdra88/netmonitorsimple/releases/latest) —
+satu file, tanpa perlu install Python.
 
 ## Pakai (versi .exe — tanpa install Python)
 
@@ -38,7 +46,8 @@ path exe, jadi path lama akan gagal. Ulangi centang *Start with Windows*.
 pythonw netspeed.py
 ```
 
-`pythonw` (bukan `python`) supaya tidak ada jendela console.
+`pythonw` (bukan `python`) supaya tidak ada jendela console. Cek versi:
+`python netspeed.py --version`.
 
 ## Isi config.json
 
@@ -57,10 +66,14 @@ Ubah dari panel Settings, atau edit file lalu Exit + jalankan lagi.
 
 ```
 python -m pip install pyinstaller
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name NetSpeedMonitor netspeed.py
+python make_ico.py app.ico
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name NetSpeedMonitor --icon app.ico --version-file version_info.txt netspeed.py
 ```
 
 Hasil di `dist\NetSpeedMonitor.exe`.
+
+Naikkan versi di dua tempat saat rilis: `VERSION` di `netspeed.py` dan
+`version_info.txt`, lalu tambahkan entri di `CHANGELOG.md`.
 
 ## Struktur
 
@@ -69,7 +82,11 @@ Hasil di `dist\NetSpeedMonitor.exe`.
 | `netspeed.py` | seluruh program (widget, tray, settings, autostart) |
 | `NetSpeedMonitor.exe` | versi terkompilasi, tanpa perlu Python |
 | `Start.bat` | peluncur, taruh di samping exe |
+| `version_info.txt` | metadata versi Windows untuk exe |
+| `app.ico` | ikon aplikasi (dipakai exe + tray) |
+| `make_ico.py` | util dev: render ikon ke `.ico` multi-ukuran |
 | `grab.py` | util dev: screenshot satu region ke BMP untuk verifikasi tampilan |
+| `CHANGELOG.md` | riwayat perubahan |
 
 ## Catatan teknis
 
@@ -80,3 +97,8 @@ Hasil di `dist\NetSpeedMonitor.exe`.
 - Teks digambar ke DIB 32-bit lalu `UpdateLayeredWindow`, alpha dihitung ulang per
   piksel supaya latar benar-benar transparan di warna taskbar apa pun.
 - Build satu file butuh ~2-4 detik saat start pertama (ekstrak bundle ke temp).
+
+## Lisensi
+
+MIT
+
