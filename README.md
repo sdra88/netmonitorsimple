@@ -1,6 +1,6 @@
 # NetSpeed Monitor
 
-**Versi terbaru: [v1.1.0](https://github.com/sdra88/netmonitorsimple/releases/latest)**
+**Versi terbaru: [v1.1.1](https://github.com/sdra88/netmonitorsimple/releases/latest)**
 
 Widget kecepatan jaringan (Mbps) yang menempel di taskbar Windows 11, satu widget
 per monitor, tepat di sebelah kiri tombol Start. Background transparan, teks
@@ -35,6 +35,7 @@ Klik ikon tray (kiri atau kanan) untuk menu:
 | Settings... | panel ganti font, ukuran, warna, enable, auto start |
 | Enable monitor | nyala/matikan widget (centang = aktif) |
 | Start with Windows | tulis/hapus entri `HKCU\...\CurrentVersion\Run` |
+| Refresh widgets | paksa attach ulang ke semua monitor |
 | Exit | keluar total |
 
 Catatan: kalau folder dipindah, jalankan lagi sekali — entri autostart menunjuk
@@ -87,6 +88,7 @@ Naikkan versi di dua tempat saat rilis: `VERSION` di `netspeed.py` dan
 | `make_ico.py` | util dev: render ikon ke `.ico` multi-ukuran |
 | `grab.py` | util dev: screenshot satu region ke BMP untuk verifikasi tampilan |
 | `CHANGELOG.md` | riwayat perubahan |
+| `selftest_sync.py` | tes otomatis sinkronisasi widget↔taskbar (11 cek) |
 
 ## Catatan teknis
 
