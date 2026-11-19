@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 SCRIPT = os.path.abspath(__file__)
 BASE = os.path.dirname(SCRIPT)
@@ -57,6 +57,8 @@ ANTIALIASED_QUALITY = 4
 TRANSPARENT = 1
 DT_CENTER, DT_VCENTER, DT_SINGLELINE, DT_NOCLIP = 0x1, 0x4, 0x20, 0x100
 WM_DESTROY, WM_TIMER, WM_NULL = 0x2, 0x113, 0x0
+WM_DISPLAYCHANGE = 0x7E      # resolution / monitor layout changed
+WM_SETTINGCHANGE = 0x1A
 WM_LBUTTONUP, WM_RBUTTONUP, WM_CONTEXTMENU = 0x202, 0x205, 0x7B
 MF_STRING, MF_CHECKED, MF_SEPARATOR = 0x0, 0x8, 0x800
 TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_NONOTIFY = 0x100, 0x2, 0x80
@@ -314,13 +316,22 @@ def _children(h):
 
 
 def traybars():
+    """Every taskbar band, one per monitor.
+
+    Deliberately does NOT filter on IsWindowVisible: during a display switch, DPMS
+    sleep or a monitor being re-detached, the band window still exists but reports
+    invisible. Filtering it out made the widget vanish on that monitor until the
+    user toggled enable/disable.
+    """
     found = []
     CB = ctypes.WINFUNCTYPE(ctypes.c_bool, w.HWND, w.LPARAM)
     user32.EnumWindows.argtypes = [CB, w.LPARAM]
 
     def cb(h, lp):
-        if _cls(h) in ("Shell_TrayWnd", "Shell_SecondaryTrayWnd") and user32.IsWindowVisible(h):
-            found.append(h)
+        if _cls(h) in ("Shell_TrayWnd", "Shell_SecondaryTrayWnd"):
+            L, T, R, B = _rect(h)
+            if R > L and B > T:      # must have real geometry
+                found.append(h)
         return True
 
     user32.EnumWindows(CB(cb), 0)
@@ -360,7 +371,9 @@ def place(band, winw):
     if R - cur > 0:
         gaps.append((cur, R))
     if not gaps:
-        return None
+        gaps = [(L, R)]
+        if R - L < winw:
+            return L, T, min(winw, R - L), h
 
     if start_left is not None:
         x = start_left - winw
@@ -368,7 +381,9 @@ def place(band, winw):
             return x, T, winw, h
     gl, gr = max(gaps, key=lambda g: g[1] - g[0])
     if gr - gl < winw:
-        return None
+        # No gap wide enough (crowded bar, tiny band). Never return None -- that left
+        # the widget stuck at its previous, possibly stale coordinates. Clamp instead.
+        return gl, T, max(1, min(winw, gr - gl)), h
     x = gl if (gl + gr) / 2 < (L + R) / 2 else gr - winw
     return x, T, winw, h
 
@@ -403,8 +418,9 @@ class Widget:
     def create(self):
         L, T, R, B = _rect(self.band)
         self.h = B - T
-        r = place(self.band, self.w)
-        x, y = (r[0], r[1]) if r else (L, T)
+        r = place(self.band, self.w) or (L, T, self.w, self.h)
+        x, y = r[0], r[1]
+        self.w, self.h = max(1, r[2]), max(1, r[3])
         self.hwnd = user32.CreateWindowExW(
             WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT,
             CLASS_NAME, "netspeed", POPUP, x, y, self.w, self.h, None, None, None, None)
@@ -420,10 +436,7 @@ class Widget:
         if self.hwnd:
             user32.DestroyWindow(self.hwnd)
             self.hwnd = None
-        for obj, dtor in ((self.bmp, gdi32.DeleteObject), (self.font, gdi32.DeleteObject),
-                          (self.memdc, gdi32.DeleteDC)):
-            if obj:
-                dtor(obj)
+        self.destroy_surfaces()
 
     def build_surfaces(self):
         srcdc = user32.GetDC(None)
@@ -452,12 +465,34 @@ class Widget:
         self.last_text = None
 
     def reposition(self):
+        if not self.hwnd or not user32.IsWindow(self.hwnd):
+            return False
+        if not user32.IsWindow(self.band):
+            return False
         r = place(self.band, self.w)
-        if not r or r == self.pos:
-            return
+        if not r:
+            return True
+        if r == self.pos:
+            return True
+        # geometry may have changed (size setting, DPI, band moved): surfaces are
+        # tied to w/h, so rebuild them rather than blit a stale-sized buffer
+        if r[2] != self.w or r[3] != self.h:
+            self.destroy_surfaces()
+            self.w, self.h = max(1, r[2]), max(1, r[3])
+            self.build_surfaces()
         self.pos = r
         user32.SetWindowPos(self.hwnd, HWND_TOPMOST, r[0], r[1], r[2], r[3],
                             SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        self.last_text = None
+        return True
+
+    def destroy_surfaces(self):
+        for obj, dtor in ((self.bmp, gdi32.DeleteObject), (self.font, gdi32.DeleteObject),
+                          (self.memdc, gdi32.DeleteDC)):
+            if obj:
+                dtor(obj)
+        self.bmp = self.font = self.memdc = None
+        self.bits = None
 
     def paint(self, text):
         if text == self.last_text:
@@ -634,6 +669,7 @@ def show_menu():
     cfg = load_cfg()
     menu = user32.CreatePopupMenu()
     user32.AppendMenuW(menu, MF_STRING, 1, "Settings...")
+    user32.AppendMenuW(menu, MF_STRING, 5, "Refresh widgets")
     user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
     user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if cfg["enabled"] else 0), 2, "Enable monitor")
     user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if autostart_enabled() else 0), 3,
@@ -655,6 +691,8 @@ def show_menu():
         user32.PostMessageW(msg_hwnd, WM_APPLY, 0, 0)
     elif cmd == 3:
         set_autostart(not autostart_enabled())
+    elif cmd == 5:
+        user32.PostMessageW(msg_hwnd, WM_APPLY, 0, 0)
     elif cmd == 4:
         user32.PostMessageW(msg_hwnd, WM_QUITAPP, 0, 0)
 
@@ -691,12 +729,48 @@ def rebuild():
     cfg = load_cfg()
     if not cfg["enabled"]:
         return
-    for band in traybars():
-        wd = Widget(band, cfg)
-        if wd.create():
-            widgets.append(wd)
+    sync_widgets()
     for wd in widgets:
         wd.paint(last_paint)
+
+
+def sync_widgets():
+    """Match the live widget set to the live taskbar set, every tick.
+
+    The old code only rebuilt when a widget's window had been destroyed, so a monitor
+    that appeared, disappeared or changed geometry left the set out of step -- the
+    symptom was a widget missing on one monitor (or two stacked on another) until the
+    user toggled enable/disable. Now the band list is the source of truth: attach a
+    widget to every band that lacks one, drop widgets whose band is gone, and repaint
+    anything that got re-created.
+    """
+    cfg = load_cfg()
+    if not cfg["enabled"]:
+        # disabled: drop everything, including widgets created before the toggle
+        for wd in widgets:
+            wd.destroy()
+        del widgets[:]
+        return
+    band_list = traybars()
+    live = {int(wd.band): wd for wd in widgets}
+
+    # drop widgets whose band no longer exists
+    for band in list(live):
+        wd = live[band]
+        if not user32.IsWindow(band):
+            wd.destroy()
+            widgets.remove(wd)
+            del live[band]
+
+    # add a widget for every band that has none
+    for band in band_list:
+        if int(band) in live:
+            continue
+        wd = Widget(band, cfg)
+        if wd.create():
+            wd.paint(last_paint)
+            widgets.append(wd)
+            live[int(band)] = wd
 
 
 def wndproc(h, msg, wp, lp):
@@ -722,16 +796,23 @@ def wndproc(h, msg, wp, lp):
             elif cur:
                 prev = cur
         elif wp == TIMER_LAYOUT:
-            if not widgets or any(not user32.IsWindow(wd.hwnd) for wd in widgets):
-                rebuild()
-                prev, prev_t = counters(), time.time()
-            else:
-                for wd in widgets:
-                    wd.reposition()
+            sync_widgets()
+            for wd in list(widgets):
+                if not wd.reposition():
+                    # band died between sync and now: drop it and re-sync next tick
+                    wd.destroy()
+                    widgets.remove(wd)
         return 0
     if msg == WM_APPLY:
         rebuild()
         prev, prev_t = counters(), time.time()
+        return 0
+    if msg == WM_DISPLAYCHANGE or msg == WM_SETTINGCHANGE:
+        # monitor added/removed/rearranged, or resolution/DPI changed: re-attach now
+        # instead of waiting for the layout tick
+        sync_widgets()
+        for wd in list(widgets):
+            wd.reposition()
         return 0
     if msg == WM_QUITAPP:
         user32.DestroyWindow(msg_hwnd)
@@ -750,6 +831,18 @@ def wndproc(h, msg, wp, lp):
 def main():
     global msg_hwnd, hicon, TASKBAR_CREATED, prev, prev_t
     save_cfg(load_cfg())  # create / normalise config.json
+
+    # single instance: two copies would each attach a widget to every taskbar,
+    # which looks exactly like 'duplicate/garbled widgets' on some monitors.
+    # CreateMutexW sets last-error; read it immediately, before any other call.
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = w.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, w.BOOL, w.LPCWSTR]
+    inst_mutex = k32.CreateMutexW(None, False, "Local\\EntNetSpeedMonitor")
+    already = ctypes.get_last_error() == 183   # ERROR_ALREADY_EXISTS
+    if already:
+        print("another instance is already running", file=sys.stderr, flush=True)
+        return 0
 
     inst = ctypes.windll.kernel32.GetModuleHandleW(None)
     host_proc = WNDPROC(wndproc)

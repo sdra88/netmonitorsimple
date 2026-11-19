@@ -1,0 +1,139 @@
+"""Self-check for the widget/band synchronisation that caused the
+'widget missing on one monitor until enable/disable' bug.
+
+Run: python selftest_sync.py
+Exercises sync_widgets() against a fake band list -- no monitors need to change.
+"""
+import sys
+
+sys.argv = sys.argv[:1]
+import netspeed as ns  # noqa: E402
+
+FAILED = []
+
+
+def check(name, cond, detail=""):
+    print(("  PASS  " if cond else "  FAIL  ") + name + (("  -> " + detail) if detail and not cond else ""))
+    if not cond:
+        FAILED.append(name)
+
+
+class FakeBand:
+    """Stand-in for a taskbar HWND: a real window so IsWindow() works."""
+
+    def __init__(self, x, y, w=1920, h=48, with_start=True):
+        # reuse the widget class already registered by netspeed, so no RegisterClass needed
+        self.hwnd = ns.user32.CreateWindowExW(
+            0, ns.CLASS_NAME, "fakeband", ns.POPUP, x, y, w, h, None, None, None, None)
+        assert self.hwnd, "could not create fake band"
+        self.has_start = with_start
+
+    def __int__(self):
+        return int(self.hwnd)
+
+    def destroy(self):
+        ns.user32.DestroyWindow(self.hwnd)
+
+
+def install_fake_bands(fake_list):
+    """Patch traybars() and place() so the test controls the band set."""
+    ns.traybars = lambda: [int(b) for b in fake_list]
+
+    def fake_place(band, winw):
+        for b in fake_list:
+            if int(b.hwnd) == int(band):
+                L, T, R, B = ns._rect(band)
+                return L + 8, T, winw, B - T
+        return None
+
+    ns.place = fake_place
+
+
+def widget_bands():
+    return sorted(int(wd.band) for wd in ns.widgets)
+
+
+def main():
+    ns.save_cfg(dict(ns.DEFAULT))
+    # netspeed registers its window class inside main(); the test must do it itself
+    import ctypes as ct
+    wc = ns.WNDCLASS()
+    wc.lpfnWndProc = ns.WNDPROC(lambda h, m, a, b: ns.user32.DefWindowProcW(h, m, a, b))
+    wc.hInstance = ct.windll.kernel32.GetModuleHandleW(None)
+    wc.lpszClassName = ns.CLASS_NAME
+    ns.user32.RegisterClassW(ct.byref(wc))
+    print("== baseline: 1 band -> 1 widget ==")
+    a = FakeBand(-1280, 1026)
+    install_fake_bands([a])
+    ns.rebuild()
+    check("1 widget for 1 band", len(ns.widgets) == 1, str(len(ns.widgets)))
+
+    print("== monitor appears: 1 band -> 2 ==")
+    b = FakeBand(0, 1032)
+    install_fake_bands([a, b])
+    ns.sync_widgets()
+    check("2 widgets for 2 bands", len(ns.widgets) == 2, str(len(ns.widgets)))
+    check("both bands attached", widget_bands() == sorted([int(a), int(b)]), str(widget_bands()))
+
+    print("== sync is idempotent (no duplicate widgets) ==")
+    ns.sync_widgets()
+    ns.sync_widgets()
+    check("still 2 widgets after repeated sync", len(ns.widgets) == 2, str(len(ns.widgets)))
+
+    print("== monitor disappears: 2 bands -> 1 (the reported bug) ==")
+    install_fake_bands([a])
+    b.destroy()                      # band window really is gone
+    ns.sync_widgets()
+    check("1 widget left after band died", len(ns.widgets) == 1, str(len(ns.widgets)))
+    check("survivor is band a", widget_bands() == [int(a)], str(widget_bands()))
+
+    print("== monitor comes back: 1 band -> 2 again ==")
+    c = FakeBand(1600, 0)
+    install_fake_bands([a, c])
+    ns.sync_widgets()
+    check("widget re-attached without enable/disable", len(ns.widgets) == 2, str(len(ns.widgets)))
+
+    print("== disabled config -> no widgets ==")
+    cfg = ns.load_cfg()
+    cfg["enabled"] = False
+    ns.save_cfg(cfg)
+    ns.sync_widgets()
+    check("0 widgets when disabled", len(ns.widgets) == 0, str(len(ns.widgets)))
+
+    print("== enabled again -> widgets return ==")
+    cfg = ns.load_cfg()
+    cfg["enabled"] = True
+    ns.save_cfg(cfg)
+    ns.sync_widgets()
+    check("2 widgets when re-enabled", len(ns.widgets) == 2, str(len(ns.widgets)))
+
+    print("== stale band object dropped by reposition() ==")
+    victim = ns.widgets[0]
+    victim.band_dummy = True
+    # kill the band under the widget
+    for bb in (a, c):
+        if int(bb) == int(victim.band):
+            bb.destroy()
+    ok = victim.reposition()
+    check("reposition() reports False for dead band", ok is False, repr(ok))
+
+    for wd in ns.widgets:
+        wd.destroy()
+    del ns.widgets[:]
+    for bb in (a, c):
+        try:
+            bb.destroy()
+        except Exception:
+            pass
+    ns.save_cfg(dict(ns.DEFAULT))
+
+    print()
+    if FAILED:
+        print("FAILED:", len(FAILED), FAILED)
+        return 1
+    print("ALL CHECKS PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
