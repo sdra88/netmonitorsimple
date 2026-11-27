@@ -12,7 +12,8 @@ import sys
 import threading
 import time
 
-VERSION = "1.1.2"
+VERSION = "1.2.0"
+VERSION_TITLE = "NetMonitorSimple v%s" % VERSION
 
 SCRIPT = os.path.abspath(__file__)
 BASE = os.path.dirname(SCRIPT)
@@ -20,6 +21,7 @@ if getattr(sys, "frozen", False):
     # bundled by PyInstaller: keep config next to the .exe, never in the temp bundle
     BASE = os.path.dirname(os.path.abspath(sys.executable))
 CFG_PATH = os.path.join(BASE, "config.json")
+EXE_NAME = "NetMonitorSimple.exe"
 
 DEFAULT = {
     "enabled": True,
@@ -60,7 +62,7 @@ WM_DESTROY, WM_TIMER, WM_NULL = 0x2, 0x113, 0x0
 WM_DISPLAYCHANGE = 0x7E      # resolution / monitor layout changed
 WM_SETTINGCHANGE = 0x1A
 WM_LBUTTONUP, WM_RBUTTONUP, WM_CONTEXTMENU = 0x202, 0x205, 0x7B
-MF_STRING, MF_CHECKED, MF_SEPARATOR = 0x0, 0x8, 0x800
+MF_STRING, MF_CHECKED, MF_SEPARATOR, MF_GRAYED = 0x0, 0x8, 0x800, 0x1
 TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_NONOTIFY = 0x100, 0x2, 0x80
 NIM_ADD, NIM_DELETE, NIM_SETVERSION = 0, 2, 4
 NIF_MESSAGE, NIF_ICON, NIF_TIP = 1, 2, 4
@@ -72,7 +74,17 @@ WM_APPLY = WM_APP + 2
 WM_QUITAPP = WM_APP + 3
 TIMER_PAINT, TIMER_LAYOUT = 1, 2
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-AUTOSTART_NAME = "NetSpeedMonitor"
+AUTOSTART_NAME = "NetMonitorSimple"
+
+# Older builds of this widget shipped under other names. Uninstall offers to clean
+# them up so a stale copy cannot keep drawing its own widget next to ours.
+LEGACY_STARTUP_NAMES = ("NetSpeedMonitor", "NetworkSpeedTray", "NetSpeedTray",
+                        "NetSpeedMonitorOld")
+LEGACY_FOLDERS = ("NetSpeedMonitor", "NetworkSpeedTray", "NetSpeedTray")
+LEGACY_PROCESSES = ("NetSpeedMonitor.exe", "NetworkSpeedTray.exe", "NetSpeedTray.exe")
+MB_OK, MB_YESNO, MB_ICONQUESTION, MB_ICONWARNING, MB_ICONINFORMATION = 0x0, 0x4, 0x20, 0x30, 0x40
+IDYES = 6
+MB_TOPMOST_FLAG = 0x40000
 
 
 # ---------------- config ----------------
@@ -103,8 +115,17 @@ def autostart_enabled():
 
 
 def autostart_command():
+    """Prefer the built exe when it sits next to the script.
+
+    Running the .py directly during development would otherwise pin autostart to
+    the Python interpreter, so the entry breaks as soon as this folder moves or
+    the interpreter is upgraded.
+    """
     if getattr(sys, "frozen", False):
         return '"%s"' % os.path.abspath(sys.executable)
+    built = os.path.join(BASE, EXE_NAME)
+    if os.path.exists(built):
+        return '"%s"' % built
     exe = sys.executable
     if exe.lower().endswith("python.exe"):
         cand = exe[:-len("python.exe")] + "pythonw.exe"
@@ -123,6 +144,163 @@ def set_autostart(on):
                 winreg.DeleteValue(k, AUTOSTART_NAME)
             except FileNotFoundError:
                 pass
+
+
+# ---------------- uninstall / legacy cleanup ----------------
+def _msgbox(text, title=VERSION_TITLE, flags=MB_OK | MB_ICONINFORMATION, parent=None):
+    """MessageBoxW; topmost so it is not lost behind the taskbar."""
+    try:
+        return user32.MessageBoxW(parent, text, title, flags | MB_TOPMOST_FLAG)
+    except Exception:
+        return 0
+
+
+def legacy_find():
+    """Report leftover pieces of older builds. Read-only: changes nothing."""
+    import winreg
+    found = {"startup": [], "folders": [], "processes": []}
+
+    for root, label in ((winreg.HKEY_CURRENT_USER, "HKCU"),
+                        (winreg.HKEY_LOCAL_MACHINE, "HKLM")):
+        for name in LEGACY_STARTUP_NAMES:
+            try:
+                with winreg.OpenKey(root, RUN_KEY) as k:
+                    val = winreg.QueryValueEx(k, name)[0]
+                found["startup"].append("%s\\Run\\%s -> %s" % (label, name, val))
+            except OSError:
+                pass
+
+    for folder in LEGACY_FOLDERS:
+        p = os.path.join(os.path.expanduser("~"), folder)
+        if os.path.isdir(p):
+            found["folders"].append(p)
+
+    # any legacy process currently running
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout.lower()
+        for exe in LEGACY_PROCESSES:
+            if exe.lower() in out:
+                found["processes"].append(exe)
+    except Exception:
+        pass
+
+    return found
+
+
+def legacy_summary(found=None):
+    found = found if found is not None else legacy_find()
+    lines = []
+    if found["processes"]:
+        lines.append("• proses jalan: " + ", ".join(found["processes"]))
+    if found["startup"]:
+        lines.append("• autostart: " + "; ".join(found["startup"]))
+    if found["folders"]:
+        lines.append("• folder: " + ", ".join(found["folders"]))
+    return "\n".join(lines)
+
+
+def legacy_remove():
+    """Kill legacy processes, delete their startup entries and folders."""
+    import winreg
+    killed, removed, failed = [], [], []
+
+    for exe in LEGACY_PROCESSES:
+        try:
+            import subprocess
+            r = subprocess.run(["taskkill", "/F", "/IM", exe],
+                               capture_output=True, text=True, timeout=15,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if r.returncode == 0:
+                killed.append(exe)
+        except Exception as exc:
+            failed.append("%s: %s" % (exe, exc))
+
+    for root, label in ((winreg.HKEY_CURRENT_USER, "HKCU"),
+                        (winreg.HKEY_LOCAL_MACHINE, "HKLM")):
+        for name in LEGACY_STARTUP_NAMES:
+            try:
+                with winreg.OpenKey(root, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+                    winreg.DeleteValue(k, name)
+                removed.append("%s\\Run\\%s" % (label, name))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass    # HKLM usually needs admin; not fatal
+
+    for folder in LEGACY_FOLDERS:
+        p = os.path.join(os.path.expanduser("~"), folder)
+        if not os.path.isdir(p):
+            continue
+        try:
+            import shutil
+            shutil.rmtree(p)
+            removed.append(p)
+        except Exception:
+            # fall back to the Recycle Bin so the user can still recover it
+            try:
+                import subprocess
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "Add-Type -AssemblyName Microsoft.VisualBasic;"
+                     "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('%s',"
+                     "'OnlyErrorDialogs','SendToRecycleBin')" % p.replace("'", "''")],
+                    capture_output=True, timeout=60,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                removed.append(p + " (Recycle Bin)")
+            except Exception as exc:
+                failed.append("%s: %s" % (p, exc))
+
+    return killed, removed, failed
+
+
+def uninstall(confirm_parent=None):
+    """Full removal: autostart, tray, widgets, then offer to delete this folder."""
+    found = legacy_find()
+    legacy_txt = legacy_summary(found)
+
+    msg = ("Hapus NetMonitorSimple dari komputer ini?\n\n"
+           "Yang akan dilakukan:\n"
+           "• mematikan widget di semua monitor\n"
+           "• menghapus entri \"Start with Windows\"\n"
+           "• menghapus ikon tray\n")
+    if legacy_txt:
+        msg += "\nDitemukan juga sisa versi lama:\n" + legacy_txt + "\n(dibersihkan juga)\n"
+    msg += "\nFile program tidak dihapus otomatis."
+
+    if _msgbox(msg, "Uninstall NetMonitorSimple",
+               MB_YESNO | MB_ICONQUESTION, confirm_parent) != IDYES:
+        return False
+
+    # stop drawing first, so nothing repaints while we tear down
+    cfg = load_cfg()
+    cfg["enabled"] = False
+    save_cfg(cfg)
+
+    set_autostart(False)
+    killed, removed, failed = legacy_remove()
+
+    tray_remove()
+
+    report = ["NetMonitorSimple sudah dimatikan dan autostart dihapus."]
+    if killed:
+        report.append("\nProses versi lama dimatikan: " + ", ".join(killed))
+    if removed:
+        report.append("\nDibersihkan:\n" + "\n".join("• " + r for r in removed))
+    if failed:
+        report.append("\nGagal (perlu hak admin?):\n" + "\n".join("• " + f for f in failed))
+    report.append("\nFile program masih ada di:\n%s\n\nHapus foldernya manual kalau sudah tidak perlu."
+                  % BASE)
+
+    _msgbox("".join(report), "Uninstall selesai", MB_OK | MB_ICONINFORMATION, confirm_parent)
+
+    # close the app itself
+    user32.PostMessageW(msg_hwnd, WM_QUITAPP, 0, 0)
+    return True
 
 
 # ---------------- ctypes signatures ----------------
@@ -165,6 +343,8 @@ user32.TranslateMessage.argtypes = [ctypes.c_void_p]
 user32.DispatchMessageW.argtypes = [ctypes.c_void_p]
 user32.DestroyMenu.argtypes = [w.HMENU]
 user32.ShowWindow.argtypes = [w.HWND, ctypes.c_int]
+user32.MessageBoxW.restype = ctypes.c_int
+user32.MessageBoxW.argtypes = [w.HWND, w.LPCWSTR, w.LPCWSTR, ctypes.c_uint]
 gdi32.CreateDIBSection.restype = ctypes.c_void_p
 gdi32.CreateDIBSection.argtypes = [w.HDC, ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p),
                                    w.HANDLE, w.DWORD]
@@ -288,8 +468,8 @@ def counters():
 
 
 # ---------------- taskbar geometry ----------------
-CLASS_NAME = "EntNetSpeedWidget"
-MSG_CLASS = "EntNetSpeedHost"
+CLASS_NAME = "EntNetMonitorSimpleWidget"
+MSG_CLASS = "EntNetMonitorSimpleHost"
 SKIP = {"Windows.UI.Composition.DesktopWindowContentBridge", "Windows.UI.Core.CoreWindow",
         "TrayDummySearchControl"}
 
@@ -424,7 +604,7 @@ class Widget:
         self.w, self.h = max(1, r[2]), max(1, r[3])
         self.hwnd = user32.CreateWindowExW(
             WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT,
-            CLASS_NAME, "netspeed", POPUP, x, y, self.w, self.h, None, None, None, None)
+            CLASS_NAME, "netmonitorsimple", POPUP, x, y, self.w, self.h, None, None, None, None)
         if not self.hwnd:
             print("CreateWindowExW failed:", ctypes.get_last_error(), file=sys.stderr, flush=True)
             return False
@@ -595,7 +775,7 @@ def open_settings():
 
             cfg = load_cfg()
             root = tk.Tk()
-            root.title("NetSpeed Monitor v%s" % VERSION)
+            root.title("NetMonitorSimple v%s" % VERSION)
             root.attributes("-topmost", True)
             root.resizable(False, False)
             root.configure(padx=14, pady=12)
@@ -651,10 +831,18 @@ def open_settings():
                 user32.PostMessageW(msg_hwnd, WM_APPLY, 0, 0)
                 root.destroy()
 
+            def do_uninstall():
+                # close the panel first so the message boxes are not hidden behind it
+                root.destroy()
+                uninstall()
+
             btns = ttk.Frame(root)
-            btns.grid(row=4, column=0, sticky="e", pady=(12, 0))
-            ttk.Button(btns, text="Apply", command=apply).grid(row=0, column=0, padx=4)
-            ttk.Button(btns, text="Close", command=root.destroy).grid(row=0, column=1)
+            btns.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+            ttk.Button(btns, text="Uninstall...", command=do_uninstall).grid(
+                row=0, column=0, sticky="w", padx=4)
+            ttk.Button(btns, text="Apply", command=apply).grid(row=0, column=1, padx=4)
+            ttk.Button(btns, text="Close", command=root.destroy).grid(row=0, column=2)
+            btns.columnconfigure(2, weight=1)
 
             root.mainloop()
         except Exception as exc:
@@ -669,14 +857,26 @@ def open_settings():
 def show_menu():
     cfg = load_cfg()
     menu = user32.CreatePopupMenu()
-    user32.AppendMenuW(menu, MF_STRING, 1, "Settings...")
-    user32.AppendMenuW(menu, MF_STRING, 5, "Refresh widgets")
-    user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-    user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if cfg["enabled"] else 0), 2, "Enable monitor")
-    user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if autostart_enabled() else 0), 3,
-                       "Start with Windows")
-    user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-    user32.AppendMenuW(menu, MF_STRING, 4, "Exit")
+
+    def item(flags, cmd, text):
+        user32.AppendMenuW(menu, flags, cmd, text)
+
+    def sep():
+        user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+
+    item(MF_STRING | MF_GRAYED, 0, "NetMonitorSimple v%s" % VERSION)
+    sep()
+    item(MF_STRING, 1, "Settings...")
+    item(MF_STRING | (MF_CHECKED if cfg["enabled"] else 0), 2,
+         "Enable monitor" if cfg["enabled"] else "Enable monitor (off)")
+    item(MF_STRING, 5, "Refresh widgets")
+    sep()
+    item(MF_STRING | (MF_CHECKED if autostart_enabled() else 0), 3, "Start with Windows")
+    item(MF_STRING, 6, "Open program folder")
+    sep()
+    item(MF_STRING, 7, "Uninstall...")
+    item(MF_STRING, 4, "Exit")
+
     pt = w.POINT()
     user32.GetCursorPos(ctypes.byref(pt))
     user32.SetForegroundWindow(msg_hwnd)
@@ -684,6 +884,7 @@ def show_menu():
                                 pt.x, pt.y, 0, msg_hwnd, None)
     user32.PostMessageW(msg_hwnd, WM_NULL, 0, 0)
     user32.DestroyMenu(menu)
+
     if cmd == 1:
         open_settings()
     elif cmd == 2:
@@ -694,6 +895,13 @@ def show_menu():
         set_autostart(not autostart_enabled())
     elif cmd == 5:
         user32.PostMessageW(msg_hwnd, WM_APPLY, 0, 0)
+    elif cmd == 6:
+        try:
+            os.startfile(BASE)
+        except Exception:
+            pass
+    elif cmd == 7:
+        uninstall()
     elif cmd == 4:
         user32.PostMessageW(msg_hwnd, WM_QUITAPP, 0, 0)
 
@@ -706,7 +914,7 @@ def tray_add():
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
     nid.uCallbackMessage = WM_TRAY
     nid.hIcon = hicon
-    nid.szTip = "NetSpeed Monitor v%s" % VERSION
+    nid.szTip = "NetMonitorSimple v%s" % VERSION
     ok = bool(shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)))
     nid.uVersion = NOTIFYICON_VERSION_4
     shell32.Shell_NotifyIconW(NIM_SETVERSION, ctypes.byref(nid))
@@ -859,7 +1067,7 @@ def main():
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = w.HANDLE
     k32.CreateMutexW.argtypes = [ctypes.c_void_p, w.BOOL, w.LPCWSTR]
-    inst_mutex = k32.CreateMutexW(None, False, "Local\\EntNetSpeedMonitor")
+    inst_mutex = k32.CreateMutexW(None, False, "Local\\EntMonitorSimple")
     already = ctypes.get_last_error() == 183   # ERROR_ALREADY_EXISTS
     if already:
         print("another instance is already running", file=sys.stderr, flush=True)
@@ -879,7 +1087,7 @@ def main():
     wc2.lpszClassName = CLASS_NAME
     user32.RegisterClassW(ctypes.byref(wc2))
 
-    msg_hwnd = user32.CreateWindowExW(0, MSG_CLASS, "NetSpeedHost", POPUP, 0, 0, 0, 0,
+    msg_hwnd = user32.CreateWindowExW(0, MSG_CLASS, "NetMonitorSimpleHost", POPUP, 0, 0, 0, 0,
                                       None, None, None, None)
     if not msg_hwnd:
         print("message window failed:", ctypes.get_last_error(), file=sys.stderr, flush=True)
@@ -910,7 +1118,18 @@ def main():
 
 
 if __name__ == "__main__":
-    if any(a in ("-V", "--version") for a in sys.argv[1:]):
-        print("NetSpeed Monitor %s" % VERSION)
+    args = sys.argv[1:]
+    if any(a in ("-V", "--version") for a in args):
+        print("NetMonitorSimple %s" % VERSION)
+        sys.exit(0)
+    if "--uninstall" in args:
+        # lets the user remove it without a working tray icon
+        ok = uninstall()
+        sys.exit(0 if ok else 1)
+    if "--help" in args or "-h" in args:
+        print("NetMonitorSimple %s\n\n"
+              "  --version      print the version\n"
+              "  --uninstall    remove autostart + legacy copies, then exit\n"
+              "  (no args)      run the taskbar widget" % VERSION)
         sys.exit(0)
     sys.exit(main())

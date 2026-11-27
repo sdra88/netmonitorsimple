@@ -3,6 +3,24 @@
 Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 [Semantic Versioning](https://semver.org/lang/id/).
 
+## [1.2.0] - 2026-11-27
+
+### Diubah
+
+- Nama program menjadi **NetMonitorSimple**, sama dengan nama repo GitHub, supaya
+  tidak membingungkan. Berefek ke: nama exe (`NetMonitorSimple.exe`), judul panel
+  Settings, tooltip tray, nilai autostart di registry, nama kelas window, dan nama
+  mutex single-instance. Nama lama otomatis dianggap "versi lama" saat uninstall.
+
+### Ditambahkan
+
+- **Menu Uninstall** di tray dan tombol di panel Settings, plus `--uninstall` di CLI.
+  Menghapus autostart, mematikan widget, menghapus ikon tray, dan sekaligus
+  membersihkan sisa versi lama (proses, entri startup, folder).
+- Menu tray dirapikan: versi sebagai judul, Settings, Enable, Refresh, Start with
+  Windows, Open program folder, Uninstall, Exit.
+- `--help`.
+
 ## [1.1.2] - 2026-11-22
 
 ### Diperbaiki
@@ -48,9 +66,9 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 ### Ditambahkan
 
 - Versi program (`VERSION`), muncul di tooltip tray, judul panel Settings, dan
-  `netspeed.py --version`.
+  `netmonitorsimple.py --version`.
 - Ikon aplikasi: digambar sendiri di kode (glyph panah bawah/atas), tertanam di
-  `NetSpeedMonitor.exe` dan dipakai untuk ikon system tray.
+  `NetMonitorSimple.exe` dan dipakai untuk ikon system tray.
 - Metadata Windows pada exe (Properties → Details): FileVersion, ProductName,
   CompanyName, FileDescription.
 - `make_ico.py`: util dev untuk merender ikon menjadi `.ico` multi-ukuran
@@ -74,6 +92,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 - Autostart via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Build satu file `.exe`, tanpa perlu Python terinstall.
 
+[1.2.0]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/sdra88/netmonitorsimple/compare/v1.0.0...v1.1.0

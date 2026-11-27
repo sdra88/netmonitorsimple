@@ -1,4 +1,4 @@
-# NetSpeed Monitor
+# NetMonitorSimple
 
 **Versi terbaru: [v1.1.2](https://github.com/sdra88/netmonitorsimple/releases/latest)**
 
@@ -18,14 +18,14 @@ click-through (klik taskbar tetap jalan).
 
 ## Unduh
 
-Ambil `NetSpeedMonitor.exe` dari halaman
+Ambil `NetMonitorSimple.exe` dari halaman
 [Releases](https://github.com/sdra88/netmonitorsimple/releases/latest) —
 satu file, tanpa perlu install Python.
 
 ## Pakai (versi .exe — tanpa install Python)
 
-1. Taruh `NetSpeedMonitor.exe` di folder tetap, mis. `C:\NetSpeedMonitor\`.
-2. Jalankan `NetSpeedMonitor.exe`. Muncul ikon di system tray + widget di taskbar.
+1. Taruh `NetMonitorSimple.exe` di folder tetap, mis. `C:\NetMonitorSimple\`.
+2. Jalankan `NetMonitorSimple.exe`. Muncul ikon di system tray + widget di taskbar.
 3. `config.json` dibuat otomatis di folder yang sama saat pertama jalan.
 
 Klik ikon tray (kiri atau kanan) untuk menu:
@@ -44,11 +44,11 @@ path exe, jadi path lama akan gagal. Ulangi centang *Start with Windows*.
 ## Pakai (versi .py — butuh Python 3)
 
 ```
-pythonw netspeed.py
+pythonw netmonitorsimple.py
 ```
 
 `pythonw` (bukan `python`) supaya tidak ada jendela console. Cek versi:
-`python netspeed.py --version`.
+`python netmonitorsimple.py --version`.
 
 ## Isi config.json
 
@@ -68,20 +68,20 @@ Ubah dari panel Settings, atau edit file lalu Exit + jalankan lagi.
 ```
 python -m pip install pyinstaller
 python make_ico.py app.ico
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name NetSpeedMonitor --icon app.ico --version-file version_info.txt netspeed.py
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name NetMonitorSimple --icon app.ico --version-file version_info.txt netmonitorsimple.py
 ```
 
-Hasil di `dist\NetSpeedMonitor.exe`.
+Hasil di `dist\NetMonitorSimple.exe`.
 
-Naikkan versi di dua tempat saat rilis: `VERSION` di `netspeed.py` dan
+Naikkan versi di dua tempat saat rilis: `VERSION` di `netmonitorsimple.py` dan
 `version_info.txt`, lalu tambahkan entri di `CHANGELOG.md`.
 
 ## Struktur
 
 | File | Isi |
 |---|---|
-| `netspeed.py` | seluruh program (widget, tray, settings, autostart) |
-| `NetSpeedMonitor.exe` | versi terkompilasi, tanpa perlu Python |
+| `netmonitorsimple.py` | seluruh program (widget, tray, settings, autostart) |
+| `NetMonitorSimple.exe` | versi terkompilasi, tanpa perlu Python |
 | `Start.bat` | peluncur, taruh di samping exe |
 | `version_info.txt` | metadata versi Windows untuk exe |
 | `app.ico` | ikon aplikasi (dipakai exe + tray) |

@@ -9,7 +9,7 @@ import shutil
 import sys
 
 sys.argv = sys.argv[:1]
-import netspeed as ns  # noqa: E402
+import netmonitorsimple as ns  # noqa: E402
 
 FAILED = []
 
@@ -24,7 +24,7 @@ class FakeBand:
     """Stand-in for a taskbar HWND: a real window so IsWindow() works."""
 
     def __init__(self, x, y, w=1920, h=48, with_start=True):
-        # reuse the widget class already registered by netspeed, so no RegisterClass needed
+        # reuse the widget class already registered by netmonitorsimple, so no RegisterClass needed
         self.hwnd = ns.user32.CreateWindowExW(
             0, ns.CLASS_NAME, "fakeband", ns.POPUP, x, y, w, h, None, None, None, None)
         assert self.hwnd, "could not create fake band"
@@ -71,7 +71,7 @@ def main():
 
 def _run(real_cfg_path):
     ns.save_cfg(dict(ns.DEFAULT))
-    # netspeed registers its window class inside main(); the test must do it itself
+    # netmonitorsimple registers its window class inside main(); the test must do it itself
     import ctypes as ct
     wc = ns.WNDCLASS()
     wc.lpfnWndProc = ns.WNDPROC(lambda h, m, a, b: ns.user32.DefWindowProcW(h, m, a, b))

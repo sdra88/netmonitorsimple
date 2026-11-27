@@ -33,11 +33,11 @@ for h in bands:
     L, T, R, B = rct(h)
     print("  %-24s (%d,%d,%d,%d)" % (cls(h), L, T, R, B))
 
-widgets = [h for h in wins if cls(h) == "EntNetSpeedWidget"]
+widgets = [h for h in wins if cls(h) == "EntNetMonitorSimpleWidget"]
 print("WIDGET (%d):" % len(widgets))
 for h in widgets:
     L, T, R, B = rct(h)
     print("  (%d,%d,%d,%d) w=%d h=%d vis=%s"
           % (L, T, R, B, R - L, B - T, bool(u.IsWindowVisible(h))))
 
-print("HOST:", "ada" if any(cls(h) == "EntNetSpeedHost" for h in wins) else "TIDAK ADA")
+print("HOST:", "ada" if any(cls(h) == "EntNetMonitorSimpleHost" for h in wins) else "TIDAK ADA")
