@@ -3,6 +3,32 @@
 Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 [Semantic Versioning](https://semver.org/lang/id/).
 
+## [1.2.1] - 2026-11-27
+
+### Diperbaiki
+
+- Widget hilang setiap kali taskbar diklik. Taskbar juga jendela topmost; klik
+  mengaktifkannya dan menaikkannya ke puncak band topmost, sehingga ia menutupi
+  widget sampai ada perubahan geometri. Contoh terukur sebelum perbaikan: widget
+  `z=28` sementara taskbar-nya `z=37`. Sekarang setiap tick membandingkan z-order
+  widget dengan band-nya sendiri (`GetWindow(GW_HWNDPREV)`) dan hanya memanggil
+  `SetWindowPos` bila band benar-benar menyalip — jadi tidak berkedip dan tidak
+  membebani.
+- Widget mengecil jadi 48 px pada monitor yang taskbar-nya menghadap ke dalam.
+  Pada monitor di kiri primary, `Start` berada di tepi paling kiri, sehingga
+  `start_left - width` jatuh di luar layar dan di-clamp menjadi sliver. Sekarang
+  dicoba sisi kanan `Start` bila kiri tidak cukup, dan bila taskbar memang penuh
+  (area tombol aplikasi `MSTaskListWClass` menutupi seluruh bar meski kosong),
+  widget memakai lebar penuh dan menumpang di atas strip itu — widget click-through,
+  jadi klik tetap sampai ke taskbar.
+
+### Ditambahkan
+
+- `diag_zorder.py`: laporan z-order tiap widget terhadap taskbar-nya.
+- `repro_click.py`: klik taskbar sungguhan lewat `SendInput`, lalu mengukur piksel
+  teks sebelum/sesudah untuk membuktikan widget selamat.
+- `selftest_sync.py`: cek z-order dan cek lebar penuh di setiap band (total 18 cek).
+
 ## [1.2.0] - 2026-11-27
 
 ### Diubah
@@ -92,6 +118,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 - Autostart via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Build satu file `.exe`, tanpa perlu Python terinstall.
 
+[1.2.1]: https://github.com/sdra88/netmonitorsimple/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.0...v1.1.1

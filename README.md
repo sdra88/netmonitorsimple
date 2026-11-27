@@ -1,6 +1,6 @@
 # NetMonitorSimple
 
-**Versi terbaru: [v1.1.2](https://github.com/sdra88/netmonitorsimple/releases/latest)**
+**Versi terbaru: [v1.2.1](https://github.com/sdra88/netmonitorsimple/releases/latest)**
 
 Widget kecepatan jaringan (Mbps) yang menempel di taskbar Windows 11, satu widget
 per monitor, tepat di sebelah kiri tombol Start. Background transparan, teks
@@ -88,7 +88,10 @@ Naikkan versi di dua tempat saat rilis: `VERSION` di `netmonitorsimple.py` dan
 | `make_ico.py` | util dev: render ikon ke `.ico` multi-ukuran |
 | `grab.py` | util dev: screenshot satu region ke BMP untuk verifikasi tampilan |
 | `CHANGELOG.md` | riwayat perubahan |
-| `selftest_sync.py` | tes otomatis sinkronisasi widget↔taskbar (11 cek) |
+| `selftest_sync.py` | tes otomatis: sinkronisasi widget↔taskbar, z-order, lebar (18 cek) |
+| `probe_widgets.py` | util dev: daftar band + widget beserta geometrinya |
+| `diag_zorder.py` | util dev: z-order tiap widget terhadap taskbar-nya |
+| `repro_click.py` | util dev: klik taskbar lewat SendInput, ukur apakah widget selamat |
 
 ## Catatan teknis
 
@@ -96,6 +99,11 @@ Naikkan versi di dua tempat saat rilis: `VERSION` di `netmonitorsimple.py` dan
   aktif, didedupe per MAC. ×8 ÷ detik ÷ 1e6 = Mbps.
 - Widget = layered popup topmost + `WS_EX_TRANSPARENT`, jadi tidak menghalangi klik
   taskbar dan tidak muncul di Alt-Tab.
+- Taskbar Windows juga topmost, jadi mengkliknya bisa menaikkannya di atas widget.
+  Setiap tick z-order widget dibandingkan dengan band-nya sendiri dan widget
+  dinaikkan kembali hanya bila perlu.
+- Bila taskbar tidak menyisakan ruang (area tombol aplikasi menutupi seluruh bar),
+  widget memakai lebar penuh dan menumpang di atas strip itu — tetap click-through.
 - Teks digambar ke DIB 32-bit lalu `UpdateLayeredWindow`, alpha dihitung ulang per
   piksel supaya latar benar-benar transparan di warna taskbar apa pun.
 - Build satu file butuh ~2-4 detik saat start pertama (ekstrak bundle ke temp).

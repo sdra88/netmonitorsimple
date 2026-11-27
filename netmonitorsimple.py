@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 VERSION_TITLE = "NetMonitorSimple v%s" % VERSION
 
 SCRIPT = os.path.abspath(__file__)
@@ -48,7 +48,7 @@ WNDPROC = ctypes.WINFUNCTYPE(LRESULT, w.HWND, ctypes.c_uint, ctypes.c_ulonglong,
 POPUP = 0x80000000
 WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT = \
     0x80000, 0x8000000, 0x80, 0x8, 0x20
-SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x10, 0x40
+SWP_NOACTIVATE, SWP_SHOWWINDOW, SWP_NOSIZE, SWP_NOMOVE = 0x10, 0x40, 0x1, 0x2
 SW_SHOWNOACTIVATE = 4
 HWND_TOPMOST = -1
 ULW_ALPHA = 2
@@ -73,6 +73,7 @@ WM_TRAY = WM_APP + 1
 WM_APPLY = WM_APP + 2
 WM_QUITAPP = WM_APP + 3
 TIMER_PAINT, TIMER_LAYOUT = 1, 2
+GW_HWNDPREV = 3
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 AUTOSTART_NAME = "NetMonitorSimple"
 
@@ -311,6 +312,8 @@ user32.FindWindowExW.restype = w.HWND
 user32.FindWindowExW.argtypes = [w.HWND, w.HWND, w.LPCWSTR, w.LPCWSTR]
 user32.SetWindowPos.argtypes = [w.HWND, w.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                 ctypes.c_uint]
+user32.GetWindow.restype = w.HWND
+user32.GetWindow.argtypes = [w.HWND, ctypes.c_uint]
 user32.GetClassNameW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
 user32.GetWindowRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
 user32.IsWindowVisible.argtypes = [w.HWND]
@@ -519,10 +522,17 @@ def traybars():
 
 
 def place(band, winw):
-    """Return (x, y, w, h) screen rect inside taskbar `band`: left of Start, else widest gap."""
+    """Return (x, y, w, h) screen rect inside taskbar `band`.
+
+    Preference: immediately left of the Start button. When Start sits at the very edge
+    (the taskbar on a monitor placed left of the primary faces right, so its Start is
+    at the left edge), put the widget to the right of Start instead -- otherwise the
+    widget gets clamped into whatever sliver of space is left and shrinks to a few
+    pixels wide.
+    """
     L, T, R, B = _rect(band)
     h = B - T
-    occupied, start_left = [], None
+    occupied, start_rect = [], None
     for ch in _children(band):
         c = _cls(ch)
         if c in SKIP or c in (CLASS_NAME, MSG_CLASS):
@@ -530,8 +540,8 @@ def place(band, winw):
         x1, y1, x2, y2 = _rect(ch)
         if x2 - x1 < 8 or y2 - y1 < 8:
             continue
-        if c == "Start" and start_left is None:
-            start_left = x1  # anchor; the Start element itself may report invisible
+        if c == "Start" and start_rect is None:
+            start_rect = (x1, x2)     # anchor; the Start element may report invisible
             continue
         if not user32.IsWindowVisible(ch):
             continue
@@ -550,20 +560,35 @@ def place(band, winw):
         cur = max(cur, b)
     if R - cur > 0:
         gaps.append((cur, R))
-    if not gaps:
-        gaps = [(L, R)]
-        if R - L < winw:
-            return L, T, min(winw, R - L), h
 
-    if start_left is not None:
-        x = start_left - winw
-        if x >= L and any(x >= gl and start_left <= gr for gl, gr in gaps):
+    def fits(a, b):
+        return any(a >= gl and b <= gr for gl, gr in gaps)
+
+    if start_rect:
+        s_left, s_right = start_rect
+        # left of Start first -- that is where the user asked for it
+        x = s_left - winw
+        if x >= L and fits(x, s_left):
             return x, T, winw, h
+        # Start hugs the edge, so try the other side of the button
+        x = s_right
+        if x + winw <= R and fits(x, x + winw):
+            return x, T, winw, h
+
+    if not gaps:
+        return L, T, max(1, min(winw, R - L)), h
     gl, gr = max(gaps, key=lambda g: g[1] - g[0])
     if gr - gl < winw:
-        # No gap wide enough (crowded bar, tiny band). Never return None -- that left
-        # the widget stuck at its previous, possibly stale coordinates. Clamp instead.
-        return gl, T, max(1, min(winw, gr - gl)), h
+        # No gap wide enough. Shrinking here produced an unreadable sliver (48 px wide)
+        # on a taskbar whose app-button area spans the whole bar even when empty, so
+        # keep full width and overlay the app-button strip instead. The widget is
+        # click-through (WS_EX_TRANSPARENT), so clicks still reach the taskbar below.
+        if start_rect:
+            s_left, s_right = start_rect
+            if s_right + winw <= R:
+                return s_right, T, winw, h
+            return max(L, s_left - winw), T, winw, h
+        return gl, T, winw, h
     x = gl if (gl + gr) / 2 < (L + R) / 2 else gr - winw
     return x, T, winw, h
 
@@ -653,19 +678,48 @@ class Widget:
         r = place(self.band, self.w)
         if not r:
             return True
-        if r == self.pos:
-            return True
-        # geometry may have changed (size setting, DPI, band moved): surfaces are
-        # tied to w/h, so rebuild them rather than blit a stale-sized buffer
-        if r[2] != self.w or r[3] != self.h:
-            self.destroy_surfaces()
-            self.w, self.h = max(1, r[2]), max(1, r[3])
-            self.build_surfaces()
-        self.pos = r
-        user32.SetWindowPos(self.hwnd, HWND_TOPMOST, r[0], r[1], r[2], r[3],
-                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
-        self.last_text = None
+        if r != self.pos:
+            # size change: surfaces are tied to w/h, so rebuild rather than blit stale
+            if r[2] != self.w or r[3] != self.h:
+                self.destroy_surfaces()
+                self.w, self.h = max(1, r[2]), max(1, r[3])
+                self.build_surfaces()
+            self.pos = r
+            user32.SetWindowPos(self.hwnd, HWND_TOPMOST, r[0], r[1], r[2], r[3],
+                                SWP_NOACTIVATE | SWP_SHOWWINDOW)
+            self.last_text = None
+        else:
+            self.raise_above_taskbar()
         return True
+
+    def raise_above_taskbar(self):
+        """Lift the widget above its own taskbar band.
+
+        The taskbar is itself a topmost window. Clicking it activates it and lifts it
+        to the top of the topmost band, which hid the widget until the next geometry
+        change. Comparing against our own band (rather than "is anything above me",
+        which is true almost always) keeps this a cheap no-op when we are already on
+        top and only pays for SetWindowPos when the taskbar has overtaken us.
+        """
+        if not self.hwnd or not user32.IsWindow(self.hwnd):
+            return
+        if not user32.IsWindow(self.band):
+            return
+        if self._band_is_above():
+            user32.SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+
+    def _band_is_above(self):
+        """Walk up the z-order from this widget; hitting the band means it covers us."""
+        cur, guard = self.hwnd, 0
+        while guard < 4000:
+            cur = user32.GetWindow(cur, GW_HWNDPREV)
+            if not cur:
+                return False
+            if cur == self.band:
+                return True
+            guard += 1
+        return False
 
     def destroy_surfaces(self):
         for obj, dtor in ((self.bmp, gdi32.DeleteObject), (self.font, gdi32.DeleteObject),
@@ -1022,6 +1076,7 @@ def wndproc(h, msg, wp, lp):
                 last_paint = "\u2193 %.2f  \u2191 %.2f Mbps" % (dn, up)
                 for wd in widgets:
                     wd.paint(last_paint)
+                    wd.raise_above_taskbar()
             elif cur:
                 prev = cur
         elif wp == TIMER_LAYOUT:

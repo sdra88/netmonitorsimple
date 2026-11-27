@@ -55,6 +55,40 @@ def widget_bands():
     return sorted(int(wd.band) for wd in ns.widgets)
 
 
+
+def with_real_taskbar():
+    bands = ns.traybars()
+    if not bands:
+        check("real taskbar available", False, "traybars() kosong")
+        return
+    band = bands[0]
+    wd = ns.Widget(band, ns.load_cfg())
+    if not wd.create():
+        check("widget created on real taskbar", False)
+        return
+    try:
+        ns.user32.SetWindowPos(wd.hwnd, -1, 0, 0, 0, 0,
+                               ns.SWP_NOMOVE | ns.SWP_NOSIZE | ns.SWP_NOACTIVATE)
+        check("clean state: band not above widget", wd._band_is_above() is False)
+
+        # this is what clicking the taskbar does: it is topmost too, so it comes up
+        ns.user32.SetWindowPos(band, -1, 0, 0, 0, 0,
+                               ns.SWP_NOMOVE | ns.SWP_NOSIZE | ns.SWP_NOACTIVATE)
+        # Informational only: with another instance running, its own topmost widgets
+        # interleave and the band may not end up directly above ours. The invariant
+        # that matters is asserted below -- after raise_above_taskbar() the band must
+        # not be covering us, reproduced or not.
+        print("    (band above widget before fix: %s)" % wd._band_is_above())
+
+        wd.raise_above_taskbar()
+        check("raise_above_taskbar() puts widget back on top", wd._band_is_above() is False)
+
+        wd.raise_above_taskbar()
+        check("repeat call is a harmless no-op", wd._band_is_above() is False)
+    finally:
+        wd.destroy()
+
+
 def main():
     # NEVER touch the user's real config: point the module at a throwaway file
     import tempfile
@@ -122,6 +156,22 @@ def _run(real_cfg_path):
     ns.save_cfg(cfg)
     ns.sync_widgets()
     check("2 widgets when re-enabled", len(ns.widgets) == 2, str(len(ns.widgets)))
+
+    print("== widget re-raises itself above its taskbar band ==")
+    # Uses a REAL taskbar band: a synthetic band is not topmost, so it cannot
+    # reproduce being raised above the widget.
+    with_real_taskbar()
+
+    print("== placement keeps full width on every real band ==")
+    cfg = ns.load_cfg()
+    want = ns.text_width(cfg)
+    bad = []
+    for b in ns.traybars():
+        L, T, R, B = ns._rect(b)
+        r = ns.place(b, want)
+        if r[2] != want or r[0] < L or r[0] + r[2] > R:
+            bad.append((ns._cls(b), L, R, r))
+    check("every band gets the full widget width, inside its bounds", not bad, str(bad))
 
     print("== stale band object dropped by reposition() ==")
     victim = ns.widgets[0]
