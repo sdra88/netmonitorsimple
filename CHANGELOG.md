@@ -3,6 +3,22 @@
 Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 [Semantic Versioning](https://semver.org/lang/id/).
 
+## [1.1.2] - 2026-11-22
+
+### Diperbaiki
+
+- Perubahan font, ukuran, atau warna dari panel Settings tidak sampai ke semua
+  widget. Setiap widget menyimpan lebarnya sendiri dari config saat dibuat dan
+  tidak pernah menyegarkan diri; hanya widget yang kebetulan dibangun ulang yang
+  ikut berubah, sehingga di monitor lain teks tetap ukuran lama atau terpotong
+  (pernah terlihat sebagai widget selebar 48 px yang praktis tak terlihat).
+  Sekarang `sync_widgets()` mendeteksi perubahan font/ukuran/warna dan membangun
+  ulang surface setiap widget, lalu memaksa reposition.
+
+### Ditambahkan
+
+- `selftest_sync.py`: cek perubahan config sampai ke widget yang sudah terpasang.
+
 ## [1.1.1] - 2026-11-15
 
 ### Diperbaiki
@@ -58,5 +74,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/) dan
 - Autostart via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Build satu file `.exe`, tanpa perlu Python terinstall.
 
+[1.1.2]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/sdra88/netmonitorsimple/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/sdra88/netmonitorsimple/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/sdra88/netmonitorsimple/releases/tag/v1.0.0

@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 
 SCRIPT = os.path.abspath(__file__)
 BASE = os.path.dirname(SCRIPT)
@@ -414,6 +414,7 @@ class Widget:
         self.pos = None
         self.w = text_width(cfg)
         self.h = 48
+        self.cfg_key = (cfg["font"], cfg["size"], cfg["color"])
 
     def create(self):
         L, T, R, B = _rect(self.band)
@@ -753,6 +754,26 @@ def sync_widgets():
         return
     band_list = traybars()
     live = {int(wd.band): wd for wd in widgets}
+
+    # config may have changed (font, size, colour) since these widgets were built.
+    # Their width comes from cfg, and their font/colour are baked into the surfaces,
+    # so refresh in place -- without this a settings change only reached monitors
+    # whose widget happened to be re-created, leaving the others at the old look.
+    want_w = text_width(cfg)
+    want_key = (cfg["font"], cfg["size"], cfg["color"])
+    for wd in widgets:
+        if getattr(wd, "cfg_key", None) != want_key:
+            wd.cfg = dict(cfg)
+            wd.cfg_key = want_key
+            wd.destroy_surfaces()
+            wd.w = want_w
+            wd.h = max(1, _rect(wd.band)[3] - _rect(wd.band)[1]) if user32.IsWindow(wd.band) else wd.h
+            wd.build_surfaces()
+            wd.pos = None          # force a reposition with the new geometry
+            wd.last_text = None
+        elif wd.w != want_w:
+            wd.w = want_w
+            wd.pos = None
 
     # drop widgets whose band no longer exists
     for band in list(live):

@@ -1,6 +1,6 @@
 # NetSpeed Monitor
 
-**Versi terbaru: [v1.1.1](https://github.com/sdra88/netmonitorsimple/releases/latest)**
+**Versi terbaru: [v1.1.2](https://github.com/sdra88/netmonitorsimple/releases/latest)**
 
 Widget kecepatan jaringan (Mbps) yang menempel di taskbar Windows 11, satu widget
 per monitor, tepat di sebelah kiri tombol Start. Background transparan, teks

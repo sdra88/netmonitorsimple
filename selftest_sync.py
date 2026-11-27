@@ -4,6 +4,8 @@
 Run: python selftest_sync.py
 Exercises sync_widgets() against a fake band list -- no monitors need to change.
 """
+import os
+import shutil
 import sys
 
 sys.argv = sys.argv[:1]
@@ -54,6 +56,20 @@ def widget_bands():
 
 
 def main():
+    # NEVER touch the user's real config: point the module at a throwaway file
+    import tempfile
+    global _real_cfg_path
+    real = ns.CFG_PATH
+    tmpdir = tempfile.mkdtemp(prefix="nsm_selftest_")
+    ns.CFG_PATH = os.path.join(tmpdir, "config.json")
+    try:
+        return _run(real)
+    finally:
+        ns.CFG_PATH = real
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _run(real_cfg_path):
     ns.save_cfg(dict(ns.DEFAULT))
     # netspeed registers its window class inside main(); the test must do it itself
     import ctypes as ct
@@ -116,6 +132,24 @@ def main():
             bb.destroy()
     ok = victim.reposition()
     check("reposition() reports False for dead band", ok is False, repr(ok))
+
+    print("== config change reaches ALREADY-BUILT widgets ==")
+    ns.rebuild()                       # fresh widgets at default size
+    before = [wd.w for wd in ns.widgets]
+    w_new = ns.text_width({**ns.load_cfg(), "size": 26})
+    cfg = ns.load_cfg()
+    cfg["size"] = 26
+    ns.save_cfg(cfg)
+    ns.sync_widgets()
+    after = [wd.w for wd in ns.widgets]
+    check("every widget resized after a size change", all(w == w_new for w in after),
+          f"before={before} after={after} want={w_new}")
+    for wd in ns.widgets:
+        wd.reposition()
+    check("reposition() then applies the new width",
+          all(wd.w == w_new for wd in ns.widgets),
+          str([(wd.w, wd.pos) for wd in ns.widgets]))
+    ns.save_cfg(dict(ns.DEFAULT))
 
     for wd in ns.widgets:
         wd.destroy()
